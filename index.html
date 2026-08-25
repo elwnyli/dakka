@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>每周上下班打卡表</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { touch-action: manipulation; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    background-color: #eef3fc;
+    padding: 16px;
+    user-select: none;
+  }
+  .container {
+    background: #ffffff;
+    padding: 28px 26px 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 18px rgba(80, 110, 200, 0.12);
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  h2 {
+    text-align: center;
+    color: #4f7ce8;
+    margin: 0 0 6px;
+    font-size: 26px;
+  }
+  .week-info {
+    text-align: center;
+    color: #93a7c9;
+    font-size: 15px;
+    margin-bottom: 18px;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 480px;
+    text-align: center;
+  }
+  th, td {
+    border: 1.5px solid #9db9f2;
+    height: 72px;
+    font-size: 19px;
+    font-weight: 500;
+    padding: 0;
+  }
+  th, td:first-child {
+    background-color: #d5e4ff;
+    color: #4f7ce8;
+    font-weight: 600;
+    width: 94px;
+    font-size: 20px;
+  }
+  /* 今天那一列高亮 */
+  th.today {
+    background-color: #ffc83d;
+    color: #7a5200;
+  }
+  td.today:not(.checked) {
+    background-color: #fff8e1;
+  }
+  /* 可点击的格子 */
+  .check-cell {
+    background-color: #ffffff;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+  .check-cell:hover { background-color: #eff6ff; }
+  .check-cell.checked,
+  .check-cell.checked:hover {
+    background-color: #52c41a !important;
+    position: relative;
+  }
+  .check-cell.checked::after {
+    content: "✓";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 30px;
+    font-weight: bold;
+    color: #ffffff;
+  }
+  .btn-group {
+    margin-top: 20px;
+    padding-top: 14px;
+    background: linear-gradient(#ffffff, #ffffff) padding-box;
+    border-top: 1px dashed #cdd9f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  #counter {
+    color: #667;
+    font-size: 15px;
+  }
+  #counter b { color: #52c41a; font-size: 19px; }
+  .btn {
+    background-color: #4f7ce8;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 15px;
+    transition: background 0.2s;
+  }
+  .btn:hover { background-color: #3d66cc; }
+  .btn-danger { background-color: #ef4444; }
+  .btn-danger:hover { background-color: #dc2626; }
+  @media (max-width: 640px) {
+    body { padding: 8px; }
+    .container { padding: 14px 10px 12px; border-radius: 10px; }
+    h2 { font-size: 19px; }
+    .week-info { font-size: 12px; margin-bottom: 12px; }
+    table { min-width: 0; }
+    th, td { height: 50px; font-size: 14px; }
+    th, td:first-child { width: 56px; font-size: 15px; }
+    th.today small { font-size: 10px; }
+    .check-cell.checked::after { font-size: 20px; }
+    #counter { font-size: 12px; }
+    #counter b { font-size: 15px; }
+    .btn-group { gap: 8px; }
+    .btn { padding: 8px 12px; font-size: 12px; white-space: nowrap; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h2>每周上下班打卡表</h2>
+  <div class="week-info" id="weekInfo"></div>
+
+  <table id="punchTable">
+    <thead><tr id="headRow"></tr></thead>
+    <tbody id="bodyRows"></tbody>
+  </table>
+
+  <div class="btn-group">
+    <span id="counter"></span>
+    <button class="btn btn-danger" onclick="resetWeek()">重置本周打卡</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var ROWS = ['早上', '中午', '下午', '晚上'];
+  var DAYS = ['一', '二', '三', '四', '五', '六', '日'];
+
+  // ---- 本周标识：每年第几周（ISO 周号），换周自动从空白开始 ----
+  function isoWeekKey(date) {
+    var d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    var dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    var weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return d.getUTCFullYear() + '-W' + String(weekNo).padStart(2, '0');
+  }
+  function mondayOf(date) {
+    var d = new Date(date);
+    var day = d.getDay(); // 0=周日
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    return d;
+  }
+  function fmt(d) { return (d.getMonth() + 1) + '月' + d.getDate() + '日'; }
+
+  var now = new Date();
+  var weekKey = isoWeekKey(now);
+  var storeKey = 'dakka-' + weekKey;
+
+  var state = {};
+  try { state = JSON.parse(localStorage.getItem(storeKey) || '{}') || {}; } catch (e) { state = {}; }
+  function save() { try { localStorage.setItem(storeKey, JSON.stringify(state)); } catch (e) {} }
+  function countChecked() {
+    var n = 0;
+    for (var k in state) if (state[k]) n++;
+    return n;
+  }
+
+  // 今天是星期几 -> 列下标（周一=1 ... 周日=7）
+  var todayCol = (now.getDay() === 0) ? 7 : now.getDay();
+
+  var headRow = document.getElementById('headRow');
+  var bodyRows = document.getElementById('bodyRows');
+  var counterEl = document.getElementById('counter');
+  var weekInfoEl = document.getElementById('weekInfo');
+
+  function build() {
+    // 表头
+    var h = '<th>星期</th>';
+    DAYS.forEach(function (name, i) {
+      var col = i + 1;
+      h += '<th class="' + (col === todayCol ? 'today' : '') + '">' +
+           name + (col === todayCol ? '<br><small style="font-weight:400">今天</small>' : '') + '</th>';
+    });
+    headRow.innerHTML = h;
+    // 行
+    var b = '';
+    ROWS.forEach(function (rowName, r) {
+      b += '<tr><td>' + rowName + '</td>';
+      for (var c = 1; c <= 7; c++) {
+        b += '<td class="check-cell' + (c === todayCol ? ' today' : '') +
+             '" data-key="' + r + '-' + c + '"></td>';
+      }
+      b += '</tr>';
+    });
+    bodyRows.innerHTML = b;
+    paint();
+  }
+
+  function paint() {
+    var tds = bodyRows.querySelectorAll('.check-cell');
+    for (var i = 0; i < tds.length; i++) {
+      var td = tds[i];
+      if (state[td.dataset.key]) td.classList.add('checked');
+      else td.classList.remove('checked');
+    }
+    counterEl.innerHTML = '本周已打卡 <b>' + countChecked() + '</b> 次';
+  }
+
+  // 点击格子即打卡/取消（再点一次可撤销）
+  bodyRows.addEventListener('click', function (e) {
+    var td = e.target.closest('td.check-cell');
+    if (!td) return;
+    var key = td.dataset.key;
+    if (state[key]) delete state[key];
+    else state[key] = true;
+    save();
+    paint();
+  });
+
+  function resetWeek() {
+    if (confirm('确定要清空本周的所有打卡记录吗？')) {
+      state = {};
+      save();
+      paint();
+    }
+  }
+  window.resetWeek = resetWeek;
+
+  // 顶部显示本周日期范围
+  var mon = mondayOf(now);
+  var sun = new Date(mon);
+  sun.setDate(sun.getDate() + 6);
+  weekInfoEl.textContent = weekKey.replace('-W', ' 年第 ') + ' 周（' + fmt(mon) + ' – ' + fmt(sun) + '）· 记录自动保存在本机，换一周自动重新开始';
+
+  build();
+})();
+</script>
+</body>
+</html>
